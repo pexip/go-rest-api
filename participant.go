@@ -40,7 +40,7 @@ func (p ParticipantsResult) String() (string) {
     for _, participant := range p.Objects {
         fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t\n", participant.UUID, participant.Type, participant.URI, participant.DisplayName, participant.HasMedia)
     }
-    w.Flush() 
+    w.Flush()
     return buffer.String()
 }
 
@@ -62,5 +62,5 @@ func (p Participant) Dump() (string) {
         }
     }
     w.Flush()
-    return buffer.String() 
+    return buffer.String()
 }

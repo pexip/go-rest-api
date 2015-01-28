@@ -8,11 +8,18 @@ import (
     "encoding/json"
     "os"
     "bytes"
+    "bufio"
     "strconv"
     "time"
     "crypto/tls"
     "strings"
 )
+
+type Event struct {
+    name string
+    id string
+    data string
+}
 
 type Context struct {
     Host string
@@ -78,6 +85,65 @@ func (ctx * Context) Post(path string, postBody []byte) (bool, []byte) {
     }
 
     return true, body
+}
+
+func readEventLine(r * bufio.Reader) (name string, value string) {
+    line, _, err := r.ReadLine()
+    if err != nil {
+        panic(err)
+    }
+    if len(line) == 0 {
+        return readEventLine(r)
+    }
+    tokens := strings.Split(string(line), ": ")
+    return tokens[0], tokens[1]
+}
+
+func getEvent(r * bufio.Reader) (event Event) {
+    field_name, field_value := readEventLine(r)
+    if len(field_name) > 0 {
+        if (field_name != "event") { panic("event has no name"); }
+        event.name = field_value
+        field_name, field_value = readEventLine(r)
+        if (field_name == "id") {
+            event.id = field_value
+            field_name, field_value = readEventLine(r)
+        }
+        if (field_name != "data") { panic("event has no data"); }
+        event.data = field_value
+    } else {
+        event.name = field_value
+    }
+    return event
+}
+
+func (ctx * Context) listenOnEvents(path string) (succeeded bool) {
+    succeeded = true
+    url := fmt.Sprintf("https://%s%s", ctx.Destination, path)
+    transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},}
+    client := &http.Client{Transport: transport}
+    req, err := http.NewRequest("GET", url, bytes.NewBuffer(nil))
+    req.Header.Add("token", ctx.token)
+    req.Header.Add("Accept", "text/event-stream")
+    res, err := client.Do(req)
+    if err != nil {
+        panic(err)
+    }
+    defer res.Body.Close()
+
+    if res.StatusCode != 200 {
+        fmt.Fprintf(os.Stdout, "rest: failed to connect: %s\n", res.Status)
+        succeeded = false
+    }
+    reader := bufio.NewReaderSize(res.Body, 4096)
+
+    for {
+        e := getEvent(reader)
+        fmt.Fprintf(os.Stdout, "rest: got event %+v\n", e)
+        if e.name == "bye" { break }
+    }
+
+    return succeeded
 }
 
 func (ctx * Context) Get(path string) (succeeded bool, body []byte) {
@@ -175,6 +241,7 @@ func (ctx * Context) RequestToken() (bool) {
         ctx.UUID = token.Result.ParticipantUUID
         ctx.Expires, _ = strconv.Atoi(token.Result.Expires)
         go ctx.loginAgain()
+        go ctx.subscribeEvents()
         return true
     } else {
         return false
@@ -210,3 +277,13 @@ func (ctx * Context) Command(participant Participant, cmd string) (succeeded boo
     succeeded, _ = ctx.Post(url, nil)
     return succeeded
 }
+
+func (ctx * Context) subscribeEvents() (bool) {
+    url := fmt.Sprintf("/api/client/v2/conferences/%s/events", ctx.Conference)
+    succeeded := ctx.listenOnEvents(url)
+    if !succeeded {
+        fmt.Fprintf(os.Stdout, "rest: Failed to subscribe to events\n")
+    }
+    return succeeded
+}
+

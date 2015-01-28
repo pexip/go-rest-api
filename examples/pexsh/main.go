@@ -9,9 +9,9 @@ import (
 
 func getEnvironmentVariable(variable string) (value string) {
 	for _, env := range os.Environ() {
-    	if strings.HasPrefix(env, variable + "=") {
+	if strings.HasPrefix(env, variable + "=") {
 			value = env[len(variable)+1:]
-    	}
+	}
     }
     return value
 }
